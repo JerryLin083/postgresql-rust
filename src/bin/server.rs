@@ -4,6 +4,8 @@ use postgres_openssl::MakeTlsConnector;
 use tokio::{io::AsyncReadExt, net::TcpListener};
 use tokio_postgres::{Config, config};
 
+use postgresql_rust::cmd;
+
 type Result<T> = std::result::Result<T, ()>;
 
 #[tokio::main]
@@ -29,7 +31,7 @@ async fn main() -> Result<()> {
         eprintln!("Error: {}", err);
     })?;
 
-    //here use self-verify cer
+    //here use self-signed cer
     builder.set_verify(SslVerifyMode::NONE);
 
     let connector = MakeTlsConnector::new(builder.build());
@@ -71,7 +73,9 @@ async fn main() -> Result<()> {
                     }
                     Ok(n) => {
                         //TODO: hadnle client operation
-                        println!("Message from client: {:?}", &buf[..n]);
+                        let cmd = cmd::Cmd::from_vec(&buf[0..n]);
+
+                        println!("The message from client: {:?}", cmd);
                     }
                     Err(err) => {
                         eprintln!("Socket connection error: {}", err);

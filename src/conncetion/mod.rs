@@ -1,3 +1,5 @@
+use std::io::Error;
+
 use tokio::{
     io::{AsyncWriteExt, BufWriter},
     net::TcpStream,
@@ -21,19 +23,19 @@ impl Conncetion {
         }
     }
 
-    pub async fn write_all(&mut self) {
+    pub async fn write_all(&mut self) -> Result<(), Error> {
         //TODO: turn frame in to &[u8] and write to socket
         if let Frame::Array(frames) = &self.frame {
             for frame in frames {
                 match frame {
                     Frame::Sign(sign) => {
-                        self.stream.write_u8(*sign).await.unwrap();
+                        self.stream.write_u8(*sign).await?;
                     }
                     Frame::Bulk(bytes) => {
-                        self.stream.write_all(&bytes).await.unwrap();
+                        self.stream.write_all(&bytes).await?;
                     }
                     Frame::Interger(n) => {
-                        self.stream.write_u8(*n).await.unwrap();
+                        self.stream.write_u8(*n).await?;
                     }
                     Frame::Array(_) => {
                         unreachable!()
@@ -41,7 +43,9 @@ impl Conncetion {
                 }
             }
 
-            self.stream.flush().await.unwrap();
+            self.stream.flush().await?;
         }
+
+        Ok(())
     }
 }

@@ -13,11 +13,11 @@ impl Frame {
         Frame::Array(Vec::new())
     }
 
-    pub fn push_Sign(&mut self, sign: u8) {
+    pub fn push_sign(&mut self, sign: u8) {
         match self {
             Frame::Array(vec) => {
                 vec.push(Frame::Sign(sign));
-                vec.push(Frame::Bulk(Bytes::from("/r/n")));
+                vec.push(Frame::Bulk(Bytes::from("\r\n")));
             }
 
             _ => panic!("not array frame"),
@@ -29,7 +29,7 @@ impl Frame {
             Frame::Array(vec) => {
                 vec.push(Frame::Sign(b'#'));
                 vec.push(Frame::Bulk(Bytes::from(table.to_string())));
-                vec.push(Frame::Bulk(Bytes::from("/r/n")));
+                vec.push(Frame::Bulk(Bytes::from("\r\n")));
             }
             _ => panic!("not array frame"),
         }
@@ -41,7 +41,7 @@ impl Frame {
                 let len = columns.len() as u8;
                 vec.push(Frame::Sign(b'@'));
                 vec.push(Frame::Interger(len));
-                vec.push(Frame::Bulk(Bytes::from("/r/n")));
+                vec.push(Frame::Bulk(Bytes::from("\r\n")));
 
                 for column in columns {
                     self.push_column(column.to_string());
@@ -54,7 +54,7 @@ impl Frame {
         if let Frame::Array(vec) = self {
             vec.push(Frame::Sign(b'^'));
             vec.push(Frame::Bulk(Bytes::from(column)));
-            vec.push(Frame::Bulk(Bytes::from("/r/n")));
+            vec.push(Frame::Bulk(Bytes::from("\r\n")));
         }
     }
     pub fn push_values(&mut self, values: &Vec<String>) {
@@ -63,7 +63,7 @@ impl Frame {
                 let len = values.len() as u8;
                 vec.push(Frame::Sign(b'%'));
                 vec.push(Frame::Interger(len));
-                vec.push(Frame::Bulk(Bytes::from("/r/n")));
+                vec.push(Frame::Bulk(Bytes::from("\r\n")));
 
                 for value in values {
                     self.push_value(value.to_string());
@@ -77,7 +77,7 @@ impl Frame {
         if let Frame::Array(vec) = self {
             vec.push(Frame::Sign(b'!'));
             vec.push(Frame::Bulk(Bytes::from(value)));
-            vec.push(Frame::Bulk(Bytes::from("/r/n")));
+            vec.push(Frame::Bulk(Bytes::from("\r\n")));
         }
     }
 
@@ -87,7 +87,7 @@ impl Frame {
                 Frame::Array(vec) => {
                     vec.push(Frame::Sign(b'?'));
                     vec.push(Frame::Bulk(Bytes::from(expression.to_string())));
-                    vec.push(Frame::Bulk(Bytes::from("/r/n")));
+                    vec.push(Frame::Bulk(Bytes::from("\r\n")));
                 }
                 _ => panic!("not array frame"),
             }
