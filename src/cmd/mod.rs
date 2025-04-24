@@ -13,10 +13,12 @@ pub enum Method {
 
 #[derive(Debug)]
 pub struct Cmd {
-    method: Method,
+    pub method: Method,
     table: String,
     columns: Vec<String>,
+    columns_len: usize,
     values: Vec<String>,
+    values_len: usize,
     expression: Option<String>,
 }
 
@@ -26,7 +28,9 @@ impl Cmd {
             method,
             table: String::new(),
             columns: Vec::new(),
+            columns_len: 0,
             values: Vec::new(),
+            values_len: 0,
             expression: None,
         }
     }
@@ -36,7 +40,9 @@ impl Cmd {
             method: Method::Null,
             table: String::new(),
             columns: Vec::new(),
+            columns_len: 0,
             values: Vec::new(),
+            values_len: 0,
             expression: None,
         };
 
@@ -50,9 +56,9 @@ impl Cmd {
                 b'*' => cmd.method = Method::Update,
                 b'-' => cmd.method = Method::Delete,
                 b'#' => cmd.table = String::from_utf8(data.to_vec()).unwrap(),
-                b'@' => println!("columns len: {}", data[0]),
+                b'@' => cmd.columns_len = data[0] as usize,
                 b'^' => cmd.columns.push(String::from_utf8(data.to_vec()).unwrap()),
-                b'%' => println!("values len: {}", data[0]),
+                b'%' => cmd.values_len = data[0] as usize,
                 b'!' => cmd.values.push(String::from_utf8(data.to_vec()).unwrap()),
                 b'?' => cmd.expression = Some(String::from_utf8(data.to_vec()).unwrap()),
                 _ => unimplemented!(),
@@ -68,7 +74,7 @@ impl Cmd {
         self
     }
 
-    pub fn set_column(&mut self, columns: Vec<impl ToString>) -> &mut Self {
+    pub fn set_columns(&mut self, columns: Vec<impl ToString>) -> &mut Self {
         self.columns.clear();
 
         for column in columns {
@@ -76,6 +82,15 @@ impl Cmd {
         }
 
         self
+    }
+
+    fn get_columns(&self) -> String {
+        let columns = match self.columns.len() {
+            0 => String::from("*"),
+            _ => self.columns.join(","),
+        };
+
+        columns
     }
 
     pub fn set_values(&mut self, values: Vec<impl ToString>) -> &mut Self {
@@ -88,10 +103,29 @@ impl Cmd {
         self
     }
 
+    fn get_values(&self) -> String {
+        let mut vec = Vec::new();
+
+        for value in &self.values {
+            vec.push(format!("'{}'", value));
+        }
+
+        vec.join(",")
+    }
+
     pub fn set_condition(&mut self, condition: impl ToString) -> &mut Self {
         self.expression = Some(condition.to_string());
 
         self
+    }
+
+    fn get_condition(&self) -> String {
+        let expression = match &self.expression {
+            Some(exp) => exp.clone(),
+            None => String::new(),
+        };
+
+        expression
     }
 
     pub fn into_frame(&mut self) -> Frame {
@@ -121,6 +155,46 @@ impl Cmd {
         frame.push_expression(&self.expression);
 
         frame
+    }
+
+    pub fn query_execution(&self) -> String {
+        format!(
+            "SELECT {} FROM {} {}",
+            self.get_columns(),
+            self.table,
+            self.get_condition(),
+        )
+    }
+
+    pub fn insert_execution(&self) -> String {
+        format!(
+            "INSERT INTO {}({}) values({})",
+            self.table,
+            self.get_columns(),
+            self.get_values()
+        )
+    }
+
+    pub fn update_execution(&self) -> String {
+        let mut execute = Vec::new();
+
+        for i in 0..self.columns_len {
+            let column = &self.columns[i];
+            let value = &self.values[i];
+
+            execute.push(format!("{} = '{}'", column, value));
+        }
+
+        format!(
+            "UPDATE {} SET {} {}",
+            self.table,
+            execute.join(","),
+            self.get_condition()
+        )
+    }
+
+    pub fn delete_execution(&self) -> String {
+        format!("DELETE FROM {} {}", self.table, self.get_condition())
     }
 }
 
