@@ -18,8 +18,9 @@ frame design:
 	(?)
 
 
-ex: 
-	query: &\r\n #table\r\n @len\r\n ^column\r\n^column\r\n ?expression
+  ex: 
+	
+ 	query: &\r\n #table\r\n @len\r\n ^column\r\n^column\r\n ?expression
  
 	insert +\r\n #table\r\n @len\r\n ^column\r\n^column\r\n %len\r\n !value\r\n!value\r\n ?expression\r\n
  
