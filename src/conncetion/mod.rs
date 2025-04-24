@@ -24,7 +24,6 @@ impl Conncetion {
     }
 
     pub async fn write_all(&mut self) -> Result<(), Error> {
-        //TODO: turn frame in to &[u8] and write to socket
         if let Frame::Array(frames) = &self.frame {
             for frame in frames {
                 match frame {
