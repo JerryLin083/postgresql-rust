@@ -57,20 +57,22 @@ impl PgPool {
         Ok(PgConnection {
             client: Some(client),
             pool: Arc::clone(&self),
-            _permit: permit,
+            permit: Some(permit),
         })
     }
 
-    pub async fn return_client(self: &mut Arc<Self>, client: Client) {
+    pub async fn return_client(self: &mut Arc<Self>, client: Client, permit: OwnedSemaphorePermit) {
         let mut clients = self.clients.lock().await;
         clients.push_back(client);
+
+        drop(permit)
     }
 }
 
 pub struct PgConnection {
     client: Option<Client>,
     pool: Arc<PgPool>,
-    _permit: OwnedSemaphorePermit,
+    permit: Option<OwnedSemaphorePermit>,
 }
 
 impl PgConnection {
@@ -81,11 +83,11 @@ impl PgConnection {
 
 impl Drop for PgConnection {
     fn drop(&mut self) {
-        if let Some(client) = self.client.take() {
+        if let (Some(client), Some(permit)) = (self.client.take(), self.permit.take()) {
             let mut pool = self.pool.clone();
 
             tokio::spawn(async move {
-                pool.return_client(client).await;
+                pool.return_client(client, permit).await;
             });
         }
     }
