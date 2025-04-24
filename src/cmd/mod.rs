@@ -48,7 +48,6 @@ impl Cmd {
 
         let mut src = Cursor::new(src);
 
-        //TODO: handle columns len and values len
         while let Some((tag, data)) = get_line(&mut src) {
             match tag[0] {
                 b'&' => cmd.method = Method::Query,

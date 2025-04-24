@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
 use dotenv::dotenv;
-use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
-use postgres_openssl::MakeTlsConnector;
-use tokio::sync::Mutex;
+use postgresql_rust::pg_pool::{PgConnection, PgPool};
 use tokio::{io::AsyncReadExt, net::TcpListener};
-use tokio_postgres::{Client, Config, config};
+use tokio_postgres::{Config, config};
 
 use postgresql_rust::cmd::{self, Cmd, Method};
 
@@ -15,7 +13,7 @@ type Result<T> = std::result::Result<T, ()>;
 async fn main() -> Result<()> {
     //TODO: error handle
 
-    //load var from .enc
+    //load var from .env
     dotenv().map_err(|err| {
         eprintln!("Error: {}", err);
     })?;
@@ -30,28 +28,7 @@ async fn main() -> Result<()> {
         .dbname(&dotenv::var("DBNAME").unwrap_or(String::new()))
         .ssl_mode(config::SslMode::Require);
 
-    let mut builder = SslConnector::builder(SslMethod::tls()).map_err(|err| {
-        eprintln!("Error: {}", err);
-    })?;
-
-    //here use self-signed cer
-    builder.set_verify(SslVerifyMode::NONE);
-
-    let connector = MakeTlsConnector::new(builder.build());
-
-    let (client, connection) = config.connect(connector).await.map_err(|err| {
-        eprintln!("Error: {}", err);
-    })?;
-
-    //TODO: replace stupid single mutex lock by pooled connection
-    let arc_client = Arc::new(Mutex::new(client));
-
-    //handle connection
-    tokio::spawn(async move {
-        if let Err(err) = connection.await {
-            eprintln!("Connecttion error: {}", err);
-        }
-    });
+    let pg_pool = Arc::new(PgPool::build(config, 2).await);
 
     //listen to socket connection
     let listener = TcpListener::bind("127.0.0.1:8000").await.map_err(|err| {
@@ -62,19 +39,10 @@ async fn main() -> Result<()> {
         if let Ok((mut stream, addr)) = listener.accept().await {
             println!("socket connected");
 
-            let client = arc_client.clone();
-
-            client
-                .try_lock()
-                .unwrap()
-                .execute(
-                    "insert into connection(addr) values($1)",
-                    &[&addr.to_string()],
-                )
+            let pg_connection = pg_pool
+                .get_connection()
                 .await
-                .map_err(|err| {
-                    eprintln!("Insert error: {}", err);
-                })?;
+                .expect("Pool connetion error");
 
             tokio::spawn(async move {
                 let mut buf = vec![0; 4 * 1024];
@@ -83,8 +51,20 @@ async fn main() -> Result<()> {
                         println!("disconnection from {:?}", addr)
                     }
                     Ok(n) => {
+                        pg_connection
+                            .get_client()
+                            .execute(
+                                "insert into connection(addr) values($1)",
+                                &[&addr.to_string()],
+                            )
+                            .await
+                            .map_err(|err| {
+                                eprintln!("Insert error: {}", err);
+                            })
+                            .unwrap();
+
                         let mut cmd = cmd::Cmd::from_vec(&buf[0..n]);
-                        let _ = handle_cmd(&mut cmd, client.clone()).await;
+                        let _ = handle_cmd(&mut cmd, pg_connection).await;
                     }
                     Err(err) => {
                         eprintln!("Socket connection error: {}", err);
@@ -97,12 +77,12 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn handle_cmd(cmd: &mut Cmd, client: Arc<Mutex<Client>>) -> Result<()> {
+async fn handle_cmd(cmd: &mut Cmd, pg_connection: PgConnection) -> Result<()> {
+    let client = pg_connection.get_client();
+
     match cmd.method {
         Method::Query => {
             let rows = client
-                .try_lock()
-                .unwrap()
                 .query(&cmd.query_execution(), &[])
                 .await
                 .map_err(|err| eprintln!("Query Error: {}", err))?;
@@ -116,8 +96,6 @@ async fn handle_cmd(cmd: &mut Cmd, client: Arc<Mutex<Client>>) -> Result<()> {
         }
         Method::Insert => {
             let result = client
-                .try_lock()
-                .unwrap()
                 .execute(&cmd.insert_execution(), &[])
                 .await
                 .map_err(|err| eprintln!("Error: {}", err))?;
@@ -130,8 +108,6 @@ async fn handle_cmd(cmd: &mut Cmd, client: Arc<Mutex<Client>>) -> Result<()> {
         }
         Method::Update => {
             let rows = client
-                .try_lock()
-                .unwrap()
                 .execute(&cmd.update_execution(), &[])
                 .await
                 .map_err(|err| eprintln!("Error: {}", err))?;
@@ -140,8 +116,6 @@ async fn handle_cmd(cmd: &mut Cmd, client: Arc<Mutex<Client>>) -> Result<()> {
         }
         Method::Delete => {
             let rows = client
-                .try_lock()
-                .unwrap()
                 .execute(&cmd.delete_execution(), &[])
                 .await
                 .map_err(|err| {
