@@ -1,79 +1,60 @@
-use std::sync::Arc;
-
-use dotenv::dotenv;
-use postgresql_rust::pg_pool::{PgConnection, PgPool};
+use postgresql_rust::{
+    Result,
+    cmd::{self, Cmd, Method},
+    pg_pool::{PgConnection, PgPool},
+};
 use tokio::{io::AsyncReadExt, net::TcpListener};
 use tokio_postgres::{Config, config};
 
-use postgresql_rust::cmd::{self, Cmd, Method};
-
-type Result<T> = std::result::Result<T, ()>;
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    //TODO: error handle
-
-    //load var from .env
-    dotenv().map_err(|err| {
-        eprintln!("Error: {}", err);
-    })?;
-
     //connection config
     let mut config = Config::new();
-
     config
-        .host(&dotenv::var("HOST").unwrap_or(String::new()))
-        .user(&dotenv::var("USER").unwrap_or(String::new()))
-        .password(&dotenv::var("PASSWORD").unwrap_or(String::new()))
-        .dbname(&dotenv::var("DBNAME").unwrap_or(String::new()))
+        .host(&dotenv::var("HOST").unwrap())
+        .user(&dotenv::var("USER").unwrap())
+        .password(&dotenv::var("PASSWORD").unwrap())
+        .dbname(&dotenv::var("DBNAME").unwrap())
         .ssl_mode(config::SslMode::Require);
 
-    let pg_pool = Arc::new(PgPool::build(config, 2).await);
+    let pg_pool = PgPool::build(config, 2).await;
 
     //listen to socket connection
-    let listener = TcpListener::bind("127.0.0.1:8000").await.map_err(|err| {
-        eprintln!("Server error: {}", err);
-    })?;
+    let listener = TcpListener::bind("127.0.0.1:8000").await?;
 
     loop {
-        if let Ok((mut stream, addr)) = listener.accept().await {
-            println!("socket connected");
+        let (mut stream, addr) = listener.accept().await?;
+        println!("socket connected");
 
-            let pg_connection = pg_pool
-                .get_connection()
-                .await
-                .expect("Pool connetion error");
+        let pg_connection = pg_pool.get_connection().await?;
 
-            tokio::spawn(async move {
-                let mut buf = vec![0; 4 * 1024];
-                match stream.read(&mut buf).await {
-                    Ok(0) => {
-                        println!("disconnection from {:?}", addr)
-                    }
-                    Ok(n) => {
-                        pg_connection
-                            .get_client()
-                            .execute(
-                                "insert into connection(addr) values($1)",
-                                &[&addr.to_string()],
-                            )
-                            .await
-                            .map_err(|err| {
-                                eprintln!("Insert error: {}", err);
-                            })
-                            .unwrap();
+        tokio::spawn(async move {
+            let mut buf = vec![0; 4 * 1024];
+            match stream.read(&mut buf).await {
+                Ok(0) => {
+                    println!("disconnection from {:?}", addr)
+                }
+                Ok(n) => {
+                    pg_connection
+                        .get_client()
+                        .execute(
+                            "insert into connection(addr) values($1)",
+                            &[&addr.to_string()],
+                        )
+                        .await
+                        .expect("Failed to insert connection info");
 
-                        let mut cmd = cmd::Cmd::from_vec(&buf[0..n]);
-                        let _ = handle_cmd(&mut cmd, pg_connection).await;
-                    }
-                    Err(err) => {
-                        eprintln!("Socket connection error: {}", err);
-                    }
-                };
-            })
-        } else {
-            continue;
-        };
+                    let mut cmd = cmd::Cmd::from_vec(&buf[0..n]);
+
+                    if let Err(err) = handle_cmd(&mut cmd, pg_connection).await {
+                        eprintln!("Fail to execute command error: {}", err);
+                    };
+                }
+                Err(err) => {
+                    eprintln!("Socket connection error: {}", err);
+                }
+            };
+        });
     }
 }
 
@@ -82,10 +63,7 @@ async fn handle_cmd(cmd: &mut Cmd, pg_connection: PgConnection) -> Result<()> {
 
     match cmd.method {
         Method::Query => {
-            let rows = client
-                .query(&cmd.query_execution(), &[])
-                .await
-                .map_err(|err| eprintln!("Query Error: {}", err))?;
+            let rows = client.query(&cmd.query_execution(), &[]).await?;
 
             for row in rows {
                 let first_name: &str = row.get(0);
@@ -95,10 +73,7 @@ async fn handle_cmd(cmd: &mut Cmd, pg_connection: PgConnection) -> Result<()> {
             }
         }
         Method::Insert => {
-            let result = client
-                .execute(&cmd.insert_execution(), &[])
-                .await
-                .map_err(|err| eprintln!("Error: {}", err))?;
+            let result = client.execute(&cmd.insert_execution(), &[]).await?;
 
             if result == 1 {
                 println!("insert successfully")
@@ -107,20 +82,12 @@ async fn handle_cmd(cmd: &mut Cmd, pg_connection: PgConnection) -> Result<()> {
             }
         }
         Method::Update => {
-            let rows = client
-                .execute(&cmd.update_execution(), &[])
-                .await
-                .map_err(|err| eprintln!("Error: {}", err))?;
+            let rows = client.execute(&cmd.update_execution(), &[]).await?;
 
             println!("{} row(s) was updated", rows);
         }
         Method::Delete => {
-            let rows = client
-                .execute(&cmd.delete_execution(), &[])
-                .await
-                .map_err(|err| {
-                    eprintln!("Error: {}", err);
-                })?;
+            let rows = client.execute(&cmd.delete_execution(), &[]).await?;
 
             println!("{} row(s) was deleted", rows);
         }

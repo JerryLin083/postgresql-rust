@@ -12,7 +12,7 @@ pub struct PgPool {
 }
 
 impl PgPool {
-    pub async fn build(config: Config, size: usize) -> Self {
+    pub async fn build(config: Config, size: usize) -> Arc<Self> {
         let mut clients = VecDeque::with_capacity(size);
 
         for _ in 0..size {
@@ -38,10 +38,10 @@ impl PgPool {
             }
         }
 
-        PgPool {
+        Arc::new(PgPool {
             clients: Arc::new(Mutex::new(clients)),
             semaphore: Arc::new(Semaphore::new(size)),
-        }
+        })
     }
 
     pub async fn get_connection(self: &Arc<Self>) -> Result<PgConnection, AcquireError> {
