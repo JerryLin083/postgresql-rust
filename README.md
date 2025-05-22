@@ -1,5 +1,5 @@
 Practice using Rust Tokio to connect to PostgreSQL through TLS,
-and use a customized frame for server-client conmmunication.
+and use a customized frame for server-client communication.
 
 frame design:
 - method\r\n  
